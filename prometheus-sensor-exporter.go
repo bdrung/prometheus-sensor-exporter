@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	i2c "github.com/d2r2/go-i2c"
 	sht3x "github.com/d2r2/go-sht3x"
@@ -60,16 +60,17 @@ func SensorFromMap(model string, fields map[string]string) *Sensor {
 	return NewSensor(address8, bus, model)
 }
 
-type sensorsCollector struct {
+type sensorCollector struct {
 	Sensor       *Sensor
 	Up           *prometheus.Desc
 	TemperatureC *prometheus.Desc
 	HumidityRH   *prometheus.Desc
+	HumidityGram *prometheus.Desc
 }
 
-func NewSensorsCollector(c *Sensor) *sensorsCollector {
+func NewSensorCollector(c *Sensor) *sensorCollector {
 	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model}
-	return &sensorsCollector{
+	return &sensorCollector{
 		Sensor: c,
 		TemperatureC: prometheus.NewDesc("sensor_temperature_celsius",
 			"The temperature in Celsius",
@@ -81,7 +82,12 @@ func NewSensorsCollector(c *Sensor) *sensorsCollector {
 			nil,
 			labels,
 		),
-		Up: prometheus.NewDesc("sensors_up",
+		HumidityGram: prometheus.NewDesc("sensor_humidity_grams_per_cubic_meter",
+			"Absolute humidity in gram / cubic meter",
+			nil,
+			labels,
+		),
+		Up: prometheus.NewDesc("sensor_up",
 			"TODO",
 			nil,
 			labels,
@@ -89,23 +95,44 @@ func NewSensorsCollector(c *Sensor) *sensorsCollector {
 	}
 }
 
-func (collector *sensorsCollector) Describe(ch chan<- *prometheus.Desc) {
+func (collector *sensorCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- collector.TemperatureC
 	ch <- collector.HumidityRH
+	ch <- collector.HumidityGram
 	ch <- collector.Up
 }
 
-func (collector *sensorsCollector) Collect(ch chan<- prometheus.Metric) {
-	temp, rh, err := collector.Sensor.SHT3X.ReadTemperatureAndRelativeHumidity(collector.Sensor.I2C, sht3x.RepeatabilityLow)
+func round64(value float64, precision int) float64 {
+	value2 := math.Round(value*math.Pow10(precision)) /
+		math.Pow10(precision)
+	return value2
+}
+
+func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
+	var temp, rh float32
+	var err error
+	//if collector.Sensor.Bus == 0 {
+	//	temp = 20.0
+	//	rh = 50.0
+	//	time.Sleep(100 * time.Millisecond)
+	//	err = errors.New("prometheus-sensor-exporter: Fake failure")
+	//} else {
+	temp, rh, err = collector.Sensor.SHT3X.ReadTemperatureAndRelativeHumidity(collector.Sensor.I2C, sht3x.RepeatabilityLow)
+	//}
 	if err != nil {
 		log.Print(err)
 		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 0.0)
 		return
 	}
 
-	ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, float64(temp))
-	ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, float64(rh))
+	var temp2, rh2 float64
+	temp2 = round64(float64(temp), 2)
+	rh2 = round64(float64(rh), 2)
+
+	ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, temp2)
+	ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, rh2)
 	ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 1.0)
+	ch <- prometheus.MustNewConstMetric(collector.HumidityGram, prometheus.GaugeValue, Relative2AbsoluteHumidity(temp2, rh2))
 }
 
 func main() {
@@ -140,7 +167,7 @@ func main() {
 		switch model {
 		case "SHT35":
 			sensor := SensorFromMap(model, m)
-			collector := NewSensorsCollector(sensor)
+			collector := NewSensorCollector(sensor)
 			prometheus.MustRegister(collector)
 		default:
 			log.Fatal("Invalid model '%s'!", model)
@@ -157,9 +184,9 @@ func main() {
 	//var sensor0 = NewSensor(0x42, 0, "fake-model")
 	//var sensor1 = NewSensor(0x45, 1, "SHT35")
 
-	//var collector0 = NewSensorsCollector(sensor0)
+	//var collector0 = NewSensorCollector(sensor0)
 	//prometheus.MustRegister(collector0)
-	//var collector1 = NewSensorsCollector(sensor1)
+	//var collector1 = NewSensorCollector(sensor1)
 	//prometheus.MustRegister(collector1)
 
 	// TODO: bis hier
