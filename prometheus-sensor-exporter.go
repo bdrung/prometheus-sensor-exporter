@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	i2c "github.com/d2r2/go-i2c"
 	sht3x "github.com/d2r2/go-sht3x"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	flag "github.com/spf13/pflag"
 )
 
 type Sensor struct {
@@ -81,6 +83,26 @@ func (collector *sensorsCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func main() {
+	listen_address := flag.String("web.listen-address", ":8004", "Address on which to expose metrics and web interface.")
+	telemetry_path := flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	flag.Parse()
+	fmt.Printf("web.listen-address = %q, web.telemetry-path = %q\n", *listen_address, *telemetry_path)
+
+	for _, sensor := range flag.Args() {
+		fmt.Printf("Sensor: %q\n", sensor)
+		fields := strings.Split(sensor, ",")
+		model := fields[0]
+		fmt.Printf("Model: %v\n", model)
+		m := make(map[string]string)
+		for _, field := range fields[1:] {
+			key_value := strings.SplitN(field, "=", 2)
+			m[key_value[0]] = key_value[1]
+		}
+		fmt.Printf("flags: %v\n", m)
+		fmt.Printf("\n")
+	}
+
+	//sensorPtr := flag.String("sensor", "foo", "Sensor to scrape. <model>[,bus=<n>,address=<0xn>]")
 	// TODO: Command line parsing (supporting multiple sensors)
 
 	// bus=1
@@ -95,8 +117,6 @@ func main() {
 	var collector1 = NewSensorsCollector(sensor1)
 	prometheus.MustRegister(collector1)
 
-	http.Handle("/metrics", promhttp.Handler())
-	// TODO: make it configurable
-	// flag.String("listen-address", ":8080", "The address to listen on for HTTP requests.")
-	log.Fatal(http.ListenAndServe(":8004", nil))
+	http.Handle(*telemetry_path, promhttp.Handler())
+	log.Fatal(http.ListenAndServe(*listen_address, nil))
 }

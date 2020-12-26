@@ -8,4 +8,5 @@ require (
 	github.com/d2r2/go-shell v0.0.0-20191113051817-7664ea33645f // indirect
 	github.com/d2r2/go-sht3x v0.0.0-20181222062132-074abc261905
 	github.com/prometheus/client_golang v1.9.0
+	github.com/spf13/pflag v1.0.1
 )
