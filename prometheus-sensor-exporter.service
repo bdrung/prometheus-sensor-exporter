@@ -1,0 +1,13 @@
+[Unit]
+Description=Prometheus exporter for I²C temperature and humidity sensors
+After=network.target
+
+[Service]
+User=prometheus
+Group=i2c
+EnvironmentFile=/etc/default/prometheus-sensor-exporter
+ExecStart=/usr/bin/prometheus-sensor-exporter $ARGS
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
