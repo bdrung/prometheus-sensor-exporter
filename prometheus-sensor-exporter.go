@@ -19,13 +19,14 @@ import (
 )
 
 type Sensor struct {
-	Address       uint8
-	Bus           int
-	Model         string
-	I2C           *i2c.I2C
-	SHT3X         sht3x.SHT3X
-	mutex         sync.Mutex
-	repeatability sht3x.MeasureRepeatability
+	Address           uint8
+	Bus               int
+	Model             string
+	I2C               *i2c.I2C
+	SHT3X             sht3x.SHT3X
+	mutex             sync.Mutex
+	repeatability     sht3x.MeasureRepeatability
+	repeatability_str string
 }
 
 type BME280Sensor struct {
@@ -36,19 +37,20 @@ type BME280Sensor struct {
 	mutex   sync.Mutex
 }
 
-func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability) *Sensor {
-	fmt.Printf("New sensor: %s,address=0x%x,bus=%d, \n", model, address, bus, string(repeatability))
+func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability, repeatability_str string) *Sensor {
+	fmt.Printf("New sensor: %s,address=0x%x,bus=%d,repeatability=%s\n", model, address, bus, repeatability_str)
 	i2c, err := i2c.NewI2C(address, bus)
 	if err != nil {
 		log.Fatal(err)
 	}
 	return &Sensor{
-		Address:       address,
-		Bus:           bus,
-		Model:         model,
-		I2C:           i2c,
-		SHT3X:         *sht3x.NewSHT3X(),
-		repeatability: repeatability,
+		Address:           address,
+		Bus:               bus,
+		Model:             model,
+		I2C:               i2c,
+		SHT3X:             *sht3x.NewSHT3X(),
+		repeatability:     repeatability,
+		repeatability_str: repeatability_str,
 	}
 }
 
@@ -79,7 +81,8 @@ func SensorFromMap(model string, fields map[string]string) *Sensor {
 	// Defaults
 	var address8 uint8 = 0x45
 	var bus int = 0
-	var repeatability sht3x.MeasureRepeatability = sht3x.RepeatabilityMedium
+	var repeatability sht3x.MeasureRepeatability = sht3x.RepeatabilityHigh
+	var repeatability_str2 string = "high"
 
 	if address, ok := fields["address"]; ok {
 		address64, _ := strconv.ParseUint(address, 0, 8)
@@ -106,9 +109,10 @@ func SensorFromMap(model string, fields map[string]string) *Sensor {
 		default:
 			log.Fatalf("Unknown repeatability: %s", repeatability_str)
 		}
+		repeatability_str2 = repeatability_str
 	}
 
-	return NewSensor(address8, bus, model, repeatability)
+	return NewSensor(address8, bus, model, repeatability, repeatability_str2)
 }
 
 func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
@@ -150,7 +154,7 @@ type BME280SensorCollector struct {
 }
 
 func NewSensorCollector(c *Sensor) *sensorCollector {
-	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model}
+	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model, "repeatability": c.repeatability_str}
 	return &sensorCollector{
 		Sensor: c,
 		TemperatureC: prometheus.NewDesc("sensor_temperature_celsius",
@@ -177,7 +181,8 @@ func NewSensorCollector(c *Sensor) *sensorCollector {
 }
 
 func NewBME280SensorCollector(c *BME280Sensor) *BME280SensorCollector {
-	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model}
+	// FIXME: drop "repeatability"
+	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model, "repeatability": ""}
 	return &BME280SensorCollector{
 		Sensor: c,
 		TemperatureC: prometheus.NewDesc("sensor_temperature_celsius",
