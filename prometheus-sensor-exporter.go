@@ -18,7 +18,17 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
-type Sensor struct {
+type readings struct {
+	temperature *float64
+	humidity    *float64
+}
+
+type sensor interface {
+	poll() (readings, error)
+	labels() prometheus.Labels
+}
+
+type SHT3xSensor struct {
 	Address           uint8
 	Bus               int
 	Model             string
@@ -37,13 +47,13 @@ type BME280Sensor struct {
 	mutex   sync.Mutex
 }
 
-func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability, repeatability_str string) *Sensor {
+func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability, repeatability_str string) *SHT3xSensor {
 	fmt.Printf("New sensor: %s,address=0x%x,bus=%d,repeatability=%s\n", model, address, bus, repeatability_str)
 	i2c, err := i2c.NewI2C(address, bus)
 	if err != nil {
 		log.Fatal(err)
 	}
-	return &Sensor{
+	return &SHT3xSensor{
 		Address:           address,
 		Bus:               bus,
 		Model:             model,
@@ -77,7 +87,7 @@ func NewBME280Sensor(address uint8, bus int, model string) *BME280Sensor {
 	}
 }
 
-func SensorFromMap(model string, fields map[string]string) *Sensor {
+func SensorFromMap(model string, fields map[string]string) *SHT3xSensor {
 	// Defaults
 	var address8 uint8 = 0x45
 	var bus int = 0
@@ -138,23 +148,15 @@ func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
 }
 
 type sensorCollector struct {
-	Sensor       *Sensor
+	Sensor       sensor
 	Up           *prometheus.Desc
 	TemperatureC *prometheus.Desc
 	HumidityRH   *prometheus.Desc
 	HumidityGram *prometheus.Desc
 }
 
-type BME280SensorCollector struct {
-	Sensor       *BME280Sensor
-	Up           *prometheus.Desc
-	TemperatureC *prometheus.Desc
-	HumidityRH   *prometheus.Desc
-	HumidityGram *prometheus.Desc
-}
-
-func NewSensorCollector(c *Sensor) *sensorCollector {
-	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model, "repeatability": c.repeatability_str}
+func NewSensorCollector(c sensor) *sensorCollector {
+	labels := c.labels()
 	return &sensorCollector{
 		Sensor: c,
 		TemperatureC: prometheus.NewDesc("sensor_temperature_celsius",
@@ -173,35 +175,7 @@ func NewSensorCollector(c *Sensor) *sensorCollector {
 			labels,
 		),
 		Up: prometheus.NewDesc("sensor_up",
-			"TODO",
-			nil,
-			labels,
-		),
-	}
-}
-
-func NewBME280SensorCollector(c *BME280Sensor) *BME280SensorCollector {
-	// FIXME: drop "repeatability"
-	labels := prometheus.Labels{"address": fmt.Sprintf("0x%x", c.Address), "bus": fmt.Sprintf("%d", c.Bus), "model": c.Model, "repeatability": ""}
-	return &BME280SensorCollector{
-		Sensor: c,
-		TemperatureC: prometheus.NewDesc("sensor_temperature_celsius",
-			"The temperature in Celsius",
-			nil,
-			labels,
-		),
-		HumidityRH: prometheus.NewDesc("sensor_humidity_percent",
-			"Relative humidity in percent",
-			nil,
-			labels,
-		),
-		HumidityGram: prometheus.NewDesc("sensor_humidity_grams_per_cubic_meter",
-			"Absolute humidity in gram / cubic meter",
-			nil,
-			labels,
-		),
-		Up: prometheus.NewDesc("sensor_up",
-			"TODO",
+			"Value is 1 if reading sensor date was successful, 0 otherwise.",
 			nil,
 			labels,
 		),
@@ -215,86 +189,109 @@ func (collector *sensorCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- collector.Up
 }
 
-func (collector *BME280SensorCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- collector.TemperatureC
-	ch <- collector.HumidityRH
-	ch <- collector.HumidityGram
-	ch <- collector.Up
-}
-
 func round64(value float64, precision int) float64 {
 	value2 := math.Round(value*math.Pow10(precision)) /
 		math.Pow10(precision)
 	return value2
 }
 
-func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
-	var temp, rh float32
-	var err error
-	//if collector.Sensor.Bus == 0 {
-	//	temp = 20.0
-	//	rh = 50.0
-	//	time.Sleep(100 * time.Millisecond)
-	//	err = errors.New("prometheus-sensor-exporter: Fake failure")
-	//} else {
-	collector.Sensor.mutex.Lock()
-	temp, rh, err = collector.Sensor.SHT3X.ReadTemperatureAndRelativeHumidity(collector.Sensor.I2C, collector.Sensor.repeatability)
-	collector.Sensor.mutex.Unlock()
-	//}
-	if err != nil {
-		log.Print(err)
-		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 0.0)
-		return
+func (s SHT3xSensor) labels() prometheus.Labels {
+	return prometheus.Labels{
+		"address":       fmt.Sprintf("0x%x", s.Address),
+		"bus":           fmt.Sprintf("%d", s.Bus),
+		"model":         s.Model,
+		"repeatability": s.repeatability_str,
 	}
-
-	var temp2, rh2 float64
-	temp2 = round64(float64(temp), 2)
-	rh2 = round64(float64(rh), 2)
-
-	ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, temp2)
-	ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, rh2)
-	ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 1.0)
-	ch <- prometheus.MustNewConstMetric(collector.HumidityGram, prometheus.GaugeValue, Relative2AbsoluteHumidity(temp2, rh2))
 }
 
-func (collector *BME280SensorCollector) Collect(ch chan<- prometheus.Metric) {
-	var temp, rh float32
-	var err error
+func (s SHT3xSensor) poll() (readings, error) {
+	var readings readings
+
 	//if collector.Sensor.Bus == 0 {
 	//	temp = 20.0
 	//	rh = 50.0
 	//	time.Sleep(100 * time.Millisecond)
 	//	err = errors.New("prometheus-sensor-exporter: Fake failure")
 	//} else {
-	collector.Sensor.mutex.Lock()
-	temp, err = collector.Sensor.bme.ReadTemperatureC(bsbmp.ACCURACY_STANDARD)
-	collector.Sensor.mutex.Unlock()
-	//}
+	s.mutex.Lock()
+	temp, rh, err := s.SHT3X.ReadTemperatureAndRelativeHumidity(s.I2C, s.repeatability)
+	s.mutex.Unlock()
+	if err != nil {
+		return readings, err
+	}
+
+	temp2, rh2 := round64(float64(temp), 2), round64(float64(rh), 2)
+
+	readings.temperature = &temp2
+	readings.humidity = &rh2
+	return readings, nil
+}
+
+func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
+	readings, err := collector.Sensor.poll()
 	if err != nil {
 		log.Print(err)
 		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 0.0)
-		return
+	} else {
+		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 1)
 	}
+	if readings.temperature != nil {
+		ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, *readings.temperature)
+	}
+	if readings.humidity != nil {
+		ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, *readings.humidity)
+		if readings.temperature != nil {
+			ch <- prometheus.MustNewConstMetric(
+				collector.HumidityGram,
+				prometheus.GaugeValue,
+				Relative2AbsoluteHumidity(*readings.temperature, *readings.humidity),
+			)
+		}
+	}
+}
 
-	var temp2, rh2 float64
-	temp2 = round64(float64(temp), 2)
-	ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, temp2)
+func (s BME280Sensor) labels() prometheus.Labels {
+	// FIXME: drop "repeatability"
+	return prometheus.Labels{
+		"address":       fmt.Sprintf("0x%x", s.Address),
+		"bus":           fmt.Sprintf("%d", s.Bus),
+		"model":         s.Model,
+		"repeatability": "",
+	}
+}
 
-	collector.Sensor.mutex.Lock()
-	_, rh, err = collector.Sensor.bme.ReadHumidityRH(bsbmp.ACCURACY_STANDARD)
-	collector.Sensor.mutex.Unlock()
+func (s BME280Sensor) poll() (readings, error) {
+	var readings readings
+
+	//var temp, rh float32
+	//var err error
+	//if collector.Sensor.Bus == 0 {
+	//	temp = 20.0
+	//	rh = 50.0
+	//	time.Sleep(100 * time.Millisecond)
+	//	err = errors.New("prometheus-sensor-exporter: Fake failure")
+	//} else {
+	s.mutex.Lock()
+	temp, err := s.bme.ReadTemperatureC(bsbmp.ACCURACY_STANDARD)
+	s.mutex.Unlock()
 	//}
 	if err != nil {
-		log.Print(err)
-		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 0.0)
-		return
+		return readings, err
+	}
+	temp2 := round64(float64(temp), 2)
+	readings.temperature = &temp2
+
+	s.mutex.Lock()
+	_, rh, err := s.bme.ReadHumidityRH(bsbmp.ACCURACY_STANDARD)
+	s.mutex.Unlock()
+	//}
+	if err != nil {
+		return readings, err
 	}
 
-	rh2 = round64(float64(rh), 2)
-
-	ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, rh2)
-	ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 1.0)
-	ch <- prometheus.MustNewConstMetric(collector.HumidityGram, prometheus.GaugeValue, Relative2AbsoluteHumidity(temp2, rh2))
+	rh2 := round64(float64(rh), 2)
+	readings.humidity = &rh2
+	return readings, nil
 
 	// TODO:
 	// sensor.ReadPressurePa
@@ -339,7 +336,7 @@ func main() {
 			prometheus.MustRegister(collector)
 		case "BME280":
 			sensor := BME280SensorFromMap(model, m)
-			collector := NewBME280SensorCollector(sensor)
+			collector := NewSensorCollector(sensor)
 			prometheus.MustRegister(collector)
 		default:
 			log.Fatal("Invalid model '%s'!", model)
