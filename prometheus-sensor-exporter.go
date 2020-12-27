@@ -19,12 +19,13 @@ import (
 )
 
 type Sensor struct {
-	Address uint8
-	Bus     int
-	Model   string
-	I2C     *i2c.I2C
-	SHT3X   sht3x.SHT3X
-	mutex   sync.Mutex
+	Address       uint8
+	Bus           int
+	Model         string
+	I2C           *i2c.I2C
+	SHT3X         sht3x.SHT3X
+	mutex         sync.Mutex
+	repeatability sht3x.MeasureRepeatability
 }
 
 type BME280Sensor struct {
@@ -35,18 +36,19 @@ type BME280Sensor struct {
 	mutex   sync.Mutex
 }
 
-func NewSensor(address uint8, bus int, model string) *Sensor {
-	fmt.Printf("New sensor: %s,address=0x%x,bus=%d\n", model, address, bus)
+func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability) *Sensor {
+	fmt.Printf("New sensor: %s,address=0x%x,bus=%d, \n", model, address, bus, string(repeatability))
 	i2c, err := i2c.NewI2C(address, bus)
 	if err != nil {
 		log.Fatal(err)
 	}
 	return &Sensor{
-		Address: address,
-		Bus:     bus,
-		Model:   model,
-		I2C:     i2c,
-		SHT3X:   *sht3x.NewSHT3X(),
+		Address:       address,
+		Bus:           bus,
+		Model:         model,
+		I2C:           i2c,
+		SHT3X:         *sht3x.NewSHT3X(),
+		repeatability: repeatability,
 	}
 }
 
@@ -77,6 +79,7 @@ func SensorFromMap(model string, fields map[string]string) *Sensor {
 	// Defaults
 	var address8 uint8 = 0x45
 	var bus int = 0
+	var repeatability sht3x.MeasureRepeatability = sht3x.RepeatabilityMedium
 
 	if address, ok := fields["address"]; ok {
 		address64, _ := strconv.ParseUint(address, 0, 8)
@@ -92,7 +95,20 @@ func SensorFromMap(model string, fields map[string]string) *Sensor {
 		log.Println("unknown bus:", bus_str)
 	}
 
-	return NewSensor(address8, bus, model)
+	if repeatability_str, ok := fields["repeatability"]; ok {
+		switch repeatability_str {
+		case "low":
+			repeatability = sht3x.RepeatabilityLow
+		case "medium":
+			repeatability = sht3x.RepeatabilityMedium
+		case "high":
+			repeatability = sht3x.RepeatabilityHigh
+		default:
+			log.Fatalf("Unknown repeatability: %s", repeatability_str)
+		}
+	}
+
+	return NewSensor(address8, bus, model, repeatability)
 }
 
 func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
@@ -217,7 +233,7 @@ func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
 	//	err = errors.New("prometheus-sensor-exporter: Fake failure")
 	//} else {
 	collector.Sensor.mutex.Lock()
-	temp, rh, err = collector.Sensor.SHT3X.ReadTemperatureAndRelativeHumidity(collector.Sensor.I2C, sht3x.RepeatabilityLow)
+	temp, rh, err = collector.Sensor.SHT3X.ReadTemperatureAndRelativeHumidity(collector.Sensor.I2C, collector.Sensor.repeatability)
 	collector.Sensor.mutex.Unlock()
 	//}
 	if err != nil {
