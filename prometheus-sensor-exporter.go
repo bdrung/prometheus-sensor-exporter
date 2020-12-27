@@ -255,14 +255,13 @@ func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(collector.RawTempC, prometheus.GaugeValue, *readings.temperature)
 	}
 	if readings.humidity != nil {
-		humidity := *readings.humidity + collector.HumidityOffset
-		ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, humidity)
+		ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, *readings.humidity+collector.HumidityOffset)
 		ch <- prometheus.MustNewConstMetric(collector.RawHumidityRH, prometheus.GaugeValue, *readings.humidity)
 		if readings.temperature != nil {
 			ch <- prometheus.MustNewConstMetric(
 				collector.HumidityGram,
 				prometheus.GaugeValue,
-				Relative2AbsoluteHumidity(*readings.temperature+collector.TempOffset, humidity),
+				Relative2AbsoluteHumidity(*readings.temperature+collector.TempOffset, *readings.humidity+collector.HumidityOffset),
 			)
 		}
 	}
