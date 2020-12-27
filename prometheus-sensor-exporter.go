@@ -40,17 +40,14 @@ type SHT3xSensor struct {
 }
 
 type BME280Sensor struct {
-	Address        uint8
-	Bus            int
-	Model          string
-	bme            *bsbmp.BMP
-	mutex          sync.Mutex
-	TempOffset     float64
-	HumidityOffset float64
+	Address uint8
+	Bus     int
+	Model   string
+	bme     *bsbmp.BMP
+	mutex   sync.Mutex
 }
 
 func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability, repeatability_str string) *SHT3xSensor {
-	// TODO: temp + humidity offset
 	fmt.Printf("New sensor: %s,address=0x%x,bus=%d,repeatability=%s\n", model, address, bus, repeatability_str)
 	i2c, err := i2c.NewI2C(address, bus)
 	if err != nil {
@@ -67,8 +64,8 @@ func NewSensor(address uint8, bus int, model string, repeatability sht3x.Measure
 	}
 }
 
-func NewBME280Sensor(address uint8, bus int, model string, tempOffset float64, humidityOffset float64) *BME280Sensor {
-	fmt.Printf("New sensor: %s,address=0x%x,bus=%d,temp_offset=%f,humidity_offset=%f\n", model, address, bus, tempOffset, humidityOffset)
+func NewBME280Sensor(address uint8, bus int, model string) *BME280Sensor {
+	fmt.Printf("New sensor: %s,address=0x%x,bus=%d\n", model, address, bus)
 
 	// todo loglevel flag
 	logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
@@ -83,12 +80,10 @@ func NewBME280Sensor(address uint8, bus int, model string, tempOffset float64, h
 		log.Fatal(err)
 	}
 	return &BME280Sensor{
-		Address:        address,
-		Bus:            bus,
-		Model:          model,
-		bme:            bme,
-		TempOffset:     tempOffset,
-		HumidityOffset: humidityOffset,
+		Address: address,
+		Bus:     bus,
+		Model:   model,
+		bme:     bme,
 	}
 }
 
@@ -134,8 +129,6 @@ func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
 	// Defaults
 	var address8 uint8 = 0x76
 	var bus int = 0
-	var temp_offset float64 = 0
-	var humidity_offset float64 = 0
 
 	if address, ok := fields["address"]; ok {
 		address64, _ := strconv.ParseUint(address, 0, 8)
@@ -151,34 +144,22 @@ func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
 		log.Println("unknown bus:", bus_str)
 	}
 
-	if temp_offset_str, ok := fields["temp_offset"]; ok {
-		var err error
-		temp_offset, err = strconv.ParseFloat(temp_offset_str, 64)
-		if err != nil {
-			log.Println("Failed to parse temperature offset '%s': %s", temp_offset_str, err)
-		}
-	}
-
-	if humidity_offset_str, ok := fields["humidity_offset"]; ok {
-		var err error
-		humidity_offset, err = strconv.ParseFloat(humidity_offset_str, 64)
-		if err != nil {
-			log.Println("Failed to parse humidity offset '%s': %s", humidity_offset_str, err)
-		}
-	}
-
-	return NewBME280Sensor(address8, bus, model, temp_offset, humidity_offset)
+	return NewBME280Sensor(address8, bus, model)
 }
 
 type sensorCollector struct {
-	Sensor       Sensor
-	Up           *prometheus.Desc
-	TemperatureC *prometheus.Desc
-	HumidityRH   *prometheus.Desc
-	HumidityGram *prometheus.Desc
+	Sensor         Sensor
+	Up             *prometheus.Desc
+	TemperatureC   *prometheus.Desc
+	HumidityRH     *prometheus.Desc
+	HumidityGram   *prometheus.Desc
+	RawTempC       *prometheus.Desc
+	RawHumidityRH  *prometheus.Desc
+	TempOffset     float64
+	HumidityOffset float64
 }
 
-func NewSensorCollector(s Sensor) *sensorCollector {
+func NewSensorCollector(s Sensor, tempOffset float64, humidityOffset float64) *sensorCollector {
 	labels := s.Labels()
 	return &sensorCollector{
 		Sensor: s,
@@ -202,6 +183,18 @@ func NewSensorCollector(s Sensor) *sensorCollector {
 			nil,
 			labels,
 		),
+		RawTempC: prometheus.NewDesc("sensor_raw_temperature_celsius",
+			"The uncorrected temperature in Celsius",
+			nil,
+			labels,
+		),
+		RawHumidityRH: prometheus.NewDesc("sensor_raw_humidity_percent",
+			"Uncorrected relative humidity in percent",
+			nil,
+			labels,
+		),
+		TempOffset:     tempOffset,
+		HumidityOffset: humidityOffset,
 	}
 }
 
@@ -258,15 +251,18 @@ func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 1)
 	}
 	if readings.temperature != nil {
-		ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, *readings.temperature)
+		ch <- prometheus.MustNewConstMetric(collector.TemperatureC, prometheus.GaugeValue, *readings.temperature+collector.TempOffset)
+		ch <- prometheus.MustNewConstMetric(collector.RawTempC, prometheus.GaugeValue, *readings.temperature)
 	}
 	if readings.humidity != nil {
-		ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, *readings.humidity)
+		humidity := *readings.humidity + collector.HumidityOffset
+		ch <- prometheus.MustNewConstMetric(collector.HumidityRH, prometheus.GaugeValue, humidity)
+		ch <- prometheus.MustNewConstMetric(collector.RawHumidityRH, prometheus.GaugeValue, *readings.humidity)
 		if readings.temperature != nil {
 			ch <- prometheus.MustNewConstMetric(
 				collector.HumidityGram,
 				prometheus.GaugeValue,
-				Relative2AbsoluteHumidity(*readings.temperature, *readings.humidity),
+				Relative2AbsoluteHumidity(*readings.temperature+collector.TempOffset, humidity),
 			)
 		}
 	}
@@ -300,7 +296,7 @@ func (s BME280Sensor) Poll() (Readings, error) {
 	if err != nil {
 		return readings, err
 	}
-	temp2 := round64(float64(temp)+s.TempOffset, 2)
+	temp2 := round64(float64(temp), 2)
 	readings.temperature = &temp2
 
 	s.mutex.Lock()
@@ -311,7 +307,7 @@ func (s BME280Sensor) Poll() (Readings, error) {
 		return readings, err
 	}
 
-	rh2 := round64(float64(rh)+s.HumidityOffset, 2)
+	rh2 := round64(float64(rh), 2)
 	readings.humidity = &rh2
 	return readings, nil
 
@@ -351,18 +347,38 @@ func main() {
 		fmt.Printf("flags: %v\n", m)
 		fmt.Printf("\n")
 
+		var sensor Sensor
 		switch model {
 		case "SHT35":
-			sensor := SensorFromMap(model, m)
-			collector := NewSensorCollector(sensor)
-			prometheus.MustRegister(collector)
+			sensor = SensorFromMap(model, m)
 		case "BME280":
-			sensor := BME280SensorFromMap(model, m)
-			collector := NewSensorCollector(sensor)
-			prometheus.MustRegister(collector)
+			sensor = BME280SensorFromMap(model, m)
 		default:
 			log.Fatal("Invalid model '%s'!", model)
+			continue
 		}
+
+		var temp_offset float64 = 0
+		var humidity_offset float64 = 0
+
+		if temp_offset_str, ok := m["temp_offset"]; ok {
+			var err error
+			temp_offset, err = strconv.ParseFloat(temp_offset_str, 64)
+			if err != nil {
+				log.Println("Failed to parse temperature offset '%s': %s", temp_offset_str, err)
+			}
+		}
+
+		if humidity_offset_str, ok := m["humidity_offset"]; ok {
+			var err error
+			humidity_offset, err = strconv.ParseFloat(humidity_offset_str, 64)
+			if err != nil {
+				log.Println("Failed to parse humidity offset '%s': %s", humidity_offset_str, err)
+			}
+		}
+
+		collector := NewSensorCollector(sensor, temp_offset, humidity_offset)
+		prometheus.MustRegister(collector)
 	}
 
 	//sensorPtr := flag.String("sensor", "foo", "Sensor to scrape. <model>[,bus=<n>,address=<0xn>]")
