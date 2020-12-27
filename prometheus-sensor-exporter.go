@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	i2c "github.com/d2r2/go-i2c"
 	sht3x "github.com/d2r2/go-sht3x"
@@ -21,6 +22,7 @@ type Sensor struct {
 	Model   string
 	I2C     *i2c.I2C
 	SHT3X   sht3x.SHT3X
+	mutex   sync.Mutex
 }
 
 func NewSensor(address uint8, bus int, model string) *Sensor {
@@ -117,7 +119,9 @@ func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
 	//	time.Sleep(100 * time.Millisecond)
 	//	err = errors.New("prometheus-sensor-exporter: Fake failure")
 	//} else {
+	collector.Sensor.mutex.Lock()
 	temp, rh, err = collector.Sensor.SHT3X.ReadTemperatureAndRelativeHumidity(collector.Sensor.I2C, sht3x.RepeatabilityLow)
+	collector.Sensor.mutex.Unlock()
 	//}
 	if err != nil {
 		log.Print(err)
@@ -145,6 +149,7 @@ func main() {
 	flag.Parse()
 
 	// TODO: ab hier
+	// TODO: find good logging library
 	fmt.Printf("web.listen-address = %q, web.telemetry-path = %q\n", *listenAddress, *metricsPath)
 
 	for _, sensor := range flag.Args() {
