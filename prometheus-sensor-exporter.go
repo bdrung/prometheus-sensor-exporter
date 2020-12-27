@@ -18,14 +18,14 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
-type readings struct {
+type Readings struct {
 	temperature *float64
 	humidity    *float64
 }
 
-type sensor interface {
-	poll() (readings, error)
-	labels() prometheus.Labels
+type Sensor interface {
+	Poll() (Readings, error)
+	Labels() prometheus.Labels
 }
 
 type SHT3xSensor struct {
@@ -171,17 +171,17 @@ func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
 }
 
 type sensorCollector struct {
-	Sensor       sensor
+	Sensor       Sensor
 	Up           *prometheus.Desc
 	TemperatureC *prometheus.Desc
 	HumidityRH   *prometheus.Desc
 	HumidityGram *prometheus.Desc
 }
 
-func NewSensorCollector(c sensor) *sensorCollector {
-	labels := c.labels()
+func NewSensorCollector(s Sensor) *sensorCollector {
+	labels := s.Labels()
 	return &sensorCollector{
-		Sensor: c,
+		Sensor: s,
 		TemperatureC: prometheus.NewDesc("sensor_temperature_celsius",
 			"The temperature in Celsius",
 			nil,
@@ -213,12 +213,11 @@ func (collector *sensorCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func round64(value float64, precision int) float64 {
-	value2 := math.Round(value*math.Pow10(precision)) /
-		math.Pow10(precision)
+	value2 := math.Round(value*math.Pow10(precision)) / math.Pow10(precision)
 	return value2
 }
 
-func (s SHT3xSensor) labels() prometheus.Labels {
+func (s SHT3xSensor) Labels() prometheus.Labels {
 	return prometheus.Labels{
 		"address":       fmt.Sprintf("0x%x", s.Address),
 		"bus":           fmt.Sprintf("%d", s.Bus),
@@ -227,8 +226,8 @@ func (s SHT3xSensor) labels() prometheus.Labels {
 	}
 }
 
-func (s SHT3xSensor) poll() (readings, error) {
-	var readings readings
+func (s SHT3xSensor) Poll() (Readings, error) {
+	var readings Readings
 
 	//if collector.Sensor.Bus == 0 {
 	//	temp = 20.0
@@ -251,7 +250,7 @@ func (s SHT3xSensor) poll() (readings, error) {
 }
 
 func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
-	readings, err := collector.Sensor.poll()
+	readings, err := collector.Sensor.Poll()
 	if err != nil {
 		log.Print(err)
 		ch <- prometheus.MustNewConstMetric(collector.Up, prometheus.GaugeValue, 0.0)
@@ -273,7 +272,7 @@ func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
-func (s BME280Sensor) labels() prometheus.Labels {
+func (s BME280Sensor) Labels() prometheus.Labels {
 	// FIXME: drop "repeatability"
 	return prometheus.Labels{
 		"address":       fmt.Sprintf("0x%x", s.Address),
@@ -283,8 +282,8 @@ func (s BME280Sensor) labels() prometheus.Labels {
 	}
 }
 
-func (s BME280Sensor) poll() (readings, error) {
-	var readings readings
+func (s BME280Sensor) Poll() (Readings, error) {
+	var readings Readings
 
 	//var temp, rh float32
 	//var err error
