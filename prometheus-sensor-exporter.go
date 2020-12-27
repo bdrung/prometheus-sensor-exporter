@@ -40,14 +40,17 @@ type SHT3xSensor struct {
 }
 
 type BME280Sensor struct {
-	Address uint8
-	Bus     int
-	Model   string
-	bme     *bsbmp.BMP
-	mutex   sync.Mutex
+	Address        uint8
+	Bus            int
+	Model          string
+	bme            *bsbmp.BMP
+	mutex          sync.Mutex
+	TempOffset     float64
+	HumidityOffset float64
 }
 
 func NewSensor(address uint8, bus int, model string, repeatability sht3x.MeasureRepeatability, repeatability_str string) *SHT3xSensor {
+	// TODO: temp + humidity offset
 	fmt.Printf("New sensor: %s,address=0x%x,bus=%d,repeatability=%s\n", model, address, bus, repeatability_str)
 	i2c, err := i2c.NewI2C(address, bus)
 	if err != nil {
@@ -64,8 +67,8 @@ func NewSensor(address uint8, bus int, model string, repeatability sht3x.Measure
 	}
 }
 
-func NewBME280Sensor(address uint8, bus int, model string) *BME280Sensor {
-	fmt.Printf("New sensor: %s,address=0x%x,bus=%d\n", model, address, bus)
+func NewBME280Sensor(address uint8, bus int, model string, tempOffset float64, humidityOffset float64) *BME280Sensor {
+	fmt.Printf("New sensor: %s,address=0x%x,bus=%d,temp_offset=%f,humidity_offset=%f\n", model, address, bus, tempOffset, humidityOffset)
 
 	// todo loglevel flag
 	logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
@@ -80,10 +83,12 @@ func NewBME280Sensor(address uint8, bus int, model string) *BME280Sensor {
 		log.Fatal(err)
 	}
 	return &BME280Sensor{
-		Address: address,
-		Bus:     bus,
-		Model:   model,
-		bme:     bme,
+		Address:        address,
+		Bus:            bus,
+		Model:          model,
+		bme:            bme,
+		TempOffset:     tempOffset,
+		HumidityOffset: humidityOffset,
 	}
 }
 
@@ -129,6 +134,8 @@ func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
 	// Defaults
 	var address8 uint8 = 0x76
 	var bus int = 0
+	var temp_offset float64 = 0
+	var humidity_offset float64 = 0
 
 	if address, ok := fields["address"]; ok {
 		address64, _ := strconv.ParseUint(address, 0, 8)
@@ -144,7 +151,23 @@ func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
 		log.Println("unknown bus:", bus_str)
 	}
 
-	return NewBME280Sensor(address8, bus, model)
+	if temp_offset_str, ok := fields["temp_offset"]; ok {
+		var err error
+		temp_offset, err = strconv.ParseFloat(temp_offset_str, 64)
+		if err != nil {
+			log.Println("Failed to parse temperature offset '%s': %s", temp_offset_str, err)
+		}
+	}
+
+	if humidity_offset_str, ok := fields["humidity_offset"]; ok {
+		var err error
+		humidity_offset, err = strconv.ParseFloat(humidity_offset_str, 64)
+		if err != nil {
+			log.Println("Failed to parse humidity offset '%s': %s", humidity_offset_str, err)
+		}
+	}
+
+	return NewBME280Sensor(address8, bus, model, temp_offset, humidity_offset)
 }
 
 type sensorCollector struct {
@@ -278,7 +301,7 @@ func (s BME280Sensor) poll() (readings, error) {
 	if err != nil {
 		return readings, err
 	}
-	temp2 := round64(float64(temp), 2)
+	temp2 := round64(float64(temp)+s.TempOffset, 2)
 	readings.temperature = &temp2
 
 	s.mutex.Lock()
@@ -289,7 +312,7 @@ func (s BME280Sensor) poll() (readings, error) {
 		return readings, err
 	}
 
-	rh2 := round64(float64(rh), 2)
+	rh2 := round64(float64(rh)+s.HumidityOffset, 2)
 	readings.humidity = &rh2
 	return readings, nil
 
