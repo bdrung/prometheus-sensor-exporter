@@ -18,6 +18,36 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+type SensorFlags struct {
+	Model          string
+	Address        *uint8
+	Bus            *int
+	Repeatability  string
+	TempOffset     float64
+	HumidityOffset float64
+}
+
+func (s SensorFlags) String() string {
+	var b strings.Builder
+	b.WriteString(s.Model)
+	if s.Address != nil {
+		fmt.Fprintf(&b, ",address=0x%x", *s.Address)
+	}
+	if s.Bus != nil {
+		fmt.Fprintf(&b, ",bus=%d", *s.Bus)
+	}
+	if s.Repeatability != "" {
+		fmt.Fprintf(&b, ",repeatablility=%s", s.Repeatability)
+	}
+	if s.TempOffset != 0.0 {
+		fmt.Fprintf(&b, ",temp_offset=%g", s.TempOffset)
+	}
+	if s.HumidityOffset != 0.0 {
+		fmt.Fprintf(&b, ",humidity_offset=%g", s.HumidityOffset)
+	}
+	return b.String()
+}
+
 type Readings struct {
 	temperature *float64
 	humidity    *float64
@@ -87,64 +117,43 @@ func NewBME280Sensor(address uint8, bus int, model string) *BME280Sensor {
 	}
 }
 
-func SensorFromMap(model string, fields map[string]string) *SHT3xSensor {
+func SensorFromFlags(flags SensorFlags) *SHT3xSensor {
 	// Defaults
-	var address8 uint8 = 0x45
-	var bus int = 0
-	var repeatability sht3x.MeasureRepeatability = sht3x.RepeatabilityHigh
-	var repeatability_str2 string = "high"
-
-	if address, ok := fields["address"]; ok {
-		address64, _ := strconv.ParseUint(address, 0, 8)
-		address8 = uint8(address64)
-	} else {
-		log.Println("unknown address:", address)
+	if flags.Address == nil {
+		*flags.Address = 0x45
+	}
+	if flags.Bus == nil {
+		*flags.Bus = 0
+	}
+	if flags.Repeatability == "" {
+		flags.Repeatability = "high"
 	}
 
-	if bus_str, ok := fields["bus"]; ok {
-		bus32, _ := strconv.ParseInt(bus_str, 0, 32)
-		bus = int(bus32)
-	} else {
-		log.Println("unknown bus:", bus_str)
+	var repeatability sht3x.MeasureRepeatability
+	switch flags.Repeatability {
+	case "low":
+		repeatability = sht3x.RepeatabilityLow
+	case "medium":
+		repeatability = sht3x.RepeatabilityMedium
+	case "high":
+		repeatability = sht3x.RepeatabilityHigh
+	default:
+		log.Fatalf("Unknown repeatability: %s", flags.Repeatability)
 	}
 
-	if repeatability_str, ok := fields["repeatability"]; ok {
-		switch repeatability_str {
-		case "low":
-			repeatability = sht3x.RepeatabilityLow
-		case "medium":
-			repeatability = sht3x.RepeatabilityMedium
-		case "high":
-			repeatability = sht3x.RepeatabilityHigh
-		default:
-			log.Fatalf("Unknown repeatability: %s", repeatability_str)
-		}
-		repeatability_str2 = repeatability_str
-	}
-
-	return NewSensor(address8, bus, model, repeatability, repeatability_str2)
+	return NewSensor(*flags.Address, *flags.Bus, flags.Model, repeatability, flags.Repeatability)
 }
 
-func BME280SensorFromMap(model string, fields map[string]string) *BME280Sensor {
+func BME280SensorFromFlags(flags SensorFlags) *BME280Sensor {
 	// Defaults
-	var address8 uint8 = 0x76
-	var bus int = 0
-
-	if address, ok := fields["address"]; ok {
-		address64, _ := strconv.ParseUint(address, 0, 8)
-		address8 = uint8(address64)
-	} else {
-		log.Println("unknown address:", address)
+	if flags.Address == nil {
+		*flags.Address = 0x76
+	}
+	if flags.Bus == nil {
+		*flags.Bus = 0
 	}
 
-	if bus_str, ok := fields["bus"]; ok {
-		bus32, _ := strconv.ParseInt(bus_str, 0, 32)
-		bus = int(bus32)
-	} else {
-		log.Println("unknown bus:", bus_str)
-	}
-
-	return NewBME280Sensor(address8, bus, model)
+	return NewBME280Sensor(*flags.Address, *flags.Bus, flags.Model)
 }
 
 type sensorCollector struct {
@@ -316,6 +325,55 @@ func (s BME280Sensor) Poll() (Readings, error) {
 	// sensor.ReadAltitude
 }
 
+func parseSensorFlags(sensor string) (SensorFlags, error) {
+	var flags SensorFlags
+	fields := strings.Split(sensor, ",")
+	//model := fields[0]
+	flags.Model = fields[0]
+	//fmt.Printf("Model: %v\n", model)
+	//m := make(map[string]string, len(fields[1:]))
+	for _, field := range fields[1:] {
+		key_value := strings.SplitN(field, "=", 2)
+		var value string
+		if len(key_value) == 2 {
+			value = key_value[1]
+		}
+		switch key_value[0] {
+		case "address":
+			if address8, err := strconv.ParseUint(value, 0, 8); err == nil {
+				address := uint8(address8)
+				flags.Address = &address
+			} else {
+				return flags, fmt.Errorf("Specified address '%s' is not an unsigned integer: %s", value, err)
+			}
+		case "bus":
+			if bus32, err := strconv.ParseInt(value, 0, 32); err == nil {
+				bus := int(bus32)
+				flags.Bus = &bus
+			} else {
+				return flags, fmt.Errorf("Specified bus '%s' is not an integer: %s", value, err)
+			}
+		case "repeatability":
+			flags.Repeatability = value
+		case "temp_offset":
+			var err error
+			flags.TempOffset, err = strconv.ParseFloat(value, 64)
+			if err != nil {
+				return flags, fmt.Errorf("Failed to parse temperature offset '%s': %s", value, err)
+			}
+		case "humidity_offset":
+			var err error
+			flags.HumidityOffset, err = strconv.ParseFloat(value, 64)
+			if err != nil {
+				return flags, fmt.Errorf("Failed to parse humidity offset '%s': %s", value, err)
+			}
+		default:
+			return flags, fmt.Errorf("Unknown sensor option '%s'.", key_value[0])
+		}
+	}
+	return flags, nil
+}
+
 func main() {
 	listenAddress := flag.String(
 		"web.listen-address", ":9775", "Address on which to expose metrics and web interface.",
@@ -329,54 +387,32 @@ func main() {
 	// TODO: find good logging library
 	fmt.Printf("web.listen-address = %q, web.telemetry-path = %q\n", *listenAddress, *metricsPath)
 
-	for _, sensor := range flag.Args() {
+	sensors := make([]SensorFlags, flag.NArg())
+	for i, sensor := range flag.Args() {
 		fmt.Printf("Sensor: %q\n", sensor)
-		fields := strings.Split(sensor, ",")
-		model := fields[0]
-		fmt.Printf("Model: %v\n", model)
-		m := make(map[string]string, len(fields[1:]))
-		for _, field := range fields[1:] {
-			key_value := strings.SplitN(field, "=", 2)
-			if len(key_value) == 2 {
-				m[key_value[0]] = key_value[1]
-			} else {
-				m[key_value[0]] = ""
-			}
+		//fmt.Printf("flags: %v\n", m)
+		//fmt.Printf("\n")
+		var err error
+		sensors[i], err = parseSensorFlags(sensor)
+		if err != nil {
+			log.Fatal(err)
 		}
-		fmt.Printf("flags: %v\n", m)
-		fmt.Printf("\n")
+		fmt.Printf("sensor[%d] = %s\n", i, sensors[i])
+	}
 
+	for _, flags := range sensors {
 		var sensor Sensor
-		switch model {
+		switch flags.Model {
 		case "SHT35":
-			sensor = SensorFromMap(model, m)
+			sensor = SensorFromFlags(flags)
 		case "BME280":
-			sensor = BME280SensorFromMap(model, m)
+			sensor = BME280SensorFromFlags(flags)
 		default:
-			log.Fatal("Invalid model '%s'!", model)
+			log.Fatalf("Invalid model '%s'!", flags.Model)
 			continue
 		}
 
-		var temp_offset float64 = 0
-		var humidity_offset float64 = 0
-
-		if temp_offset_str, ok := m["temp_offset"]; ok {
-			var err error
-			temp_offset, err = strconv.ParseFloat(temp_offset_str, 64)
-			if err != nil {
-				log.Println("Failed to parse temperature offset '%s': %s", temp_offset_str, err)
-			}
-		}
-
-		if humidity_offset_str, ok := m["humidity_offset"]; ok {
-			var err error
-			humidity_offset, err = strconv.ParseFloat(humidity_offset_str, 64)
-			if err != nil {
-				log.Println("Failed to parse humidity offset '%s': %s", humidity_offset_str, err)
-			}
-		}
-
-		collector := NewSensorCollector(sensor, temp_offset, humidity_offset)
+		collector := NewSensorCollector(sensor, flags.TempOffset, flags.HumidityOffset)
 		prometheus.MustRegister(collector)
 	}
 
