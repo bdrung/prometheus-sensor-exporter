@@ -23,21 +23,12 @@ func saturationVaporPressureWater(temperatureCelsius float64) float64 {
 // relative humidity and temperature in Celsius.
 //
 // The humidity definitions and the ideal gas law were used for deriving the formula:
-// 1. AH = m_water / V
-// 2. RH = p_water / p*_water
-// 3. p_water = (m_water / V) * R_water * T
+// 1. absoluteHumidity = massWaterVapor / VolumeAirAndWater
+// 2. relativehumidity = partialVaporPressureWater / saturationVaporPressureWater
+// 3. partialVaporPressureWater = (massWaterVapor / VolumeAirAndWater) * gasConstantWater * temperatureKelvin
 //
-// Resulting formula: AH = RH * p*_water / (R_water * T)
-//
-// Symbols:
-// AH: absolute humidity
-// m_water: mass of the water vapor
-// p_water: partial vapor pressure of water
-// p*_water: saturation vapour pressure of water
-// R_water: specific gas constant for water vapor
-// RH: relative humidity
-// T: temperature (in Kelvin)
-// V: volume of the air and water vapor mixture
+// Resulting formula:
+// absoluteHumidity = relativehumidity * saturationVaporPressureWater / (gasConstantWater * temperatureKelvin)
 func Relative2AbsoluteHumidity(relativeHumidity float64, temperatureCelsius float64) float64 {
 	temperatureKelvin := temperatureCelsius + 273.15
 	return 1000 * relativeHumidity * saturationVaporPressureWater(temperatureCelsius) / (gasConstantWater * temperatureKelvin)
