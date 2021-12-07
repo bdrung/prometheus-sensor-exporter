@@ -6,20 +6,21 @@ package main
 import "math"
 
 const (
-	R       = 8.31446261815324 // molar gas constant R in kg * m² / (s² * K * mol)
-	M_water = 0.01801528       // molar mass of water M(H2O) in kg / mol
-	R_water = R / M_water      // specific gas constant for water vapor in m² / (s² * K)
+	gasConstant      = 8.31446261815324             // molar gas constant R in kg * m² / (s² * K * mol)
+	molarMassWater   = 0.01801528                   // molar mass of water M(H2O) in kg / mol
+	gasConstantWater = gasConstant / molarMassWater // specific gas constant for water vapor in m² / (s² * K)
 )
 
 // saturationVaporPressureWater calculates the saturation vapour pressure of water in hectopascal
 // (hPa) with Arden Buck equation, because it is the most accurate formula for room temperatures.
 // See https://en.wikipedia.org/wiki/Vapour_pressure_of_water#Accuracy_of_different_formulations
-func saturationVaporPressureWater(tempCelsius float64) float64 {
-	return 6.1121 * math.Exp((18.678-tempCelsius/234.5)*(tempCelsius/(257.14+tempCelsius)))
+func saturationVaporPressureWater(temperatureCelsius float64) float64 {
+	e := (18.678 - temperatureCelsius/234.5) * (temperatureCelsius / (257.14 + temperatureCelsius))
+	return 6.1121 * math.Exp(e)
 }
 
 // Relative2AbsoluteHumidity calculates the absolute humidity in g/m³ for a given
-// relative humidity (rh) and temperature in Celsius.
+// relative humidity and temperature in Celsius.
 //
 // The humidity definitions and the ideal gas law were used for deriving the formula:
 // 1. AH = m_water / V
@@ -37,7 +38,7 @@ func saturationVaporPressureWater(tempCelsius float64) float64 {
 // RH: relative humidity
 // T: temperature (in Kelvin)
 // V: volume of the air and water vapor mixture
-func Relative2AbsoluteHumidity(rh float64, tempCelsius float64) float64 {
-	tempK := tempCelsius + 273.15
-	return 1000 * rh * saturationVaporPressureWater(tempCelsius) / (R_water * tempK)
+func Relative2AbsoluteHumidity(relativeHumidity float64, temperatureCelsius float64) float64 {
+	temperatureKelvin := temperatureCelsius + 273.15
+	return 1000 * relativeHumidity * saturationVaporPressureWater(temperatureCelsius) / (gasConstantWater * temperatureKelvin)
 }
