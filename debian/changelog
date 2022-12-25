@@ -1,0 +1,5 @@
+prometheus-sensor-exporter (0.0.1~git20221225-1) unstable; urgency=medium
+
+  * Initial version.
+
+ -- Benjamin Drung <bdrung@debian.org>  Sun, 25 Dec 2022 14:59:46 +0100
