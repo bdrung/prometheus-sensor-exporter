@@ -270,7 +270,7 @@ func (collector *sensorCollector) Collect(ch chan<- prometheus.Metric) {
 			ch <- prometheus.MustNewConstMetric(
 				collector.HumidityGram,
 				prometheus.GaugeValue,
-				Relative2AbsoluteHumidity(*readings.temperature+collector.TempOffset, *readings.humidity+collector.HumidityOffset),
+				Relative2AbsoluteHumidity(*readings.humidity+collector.HumidityOffset, *readings.temperature+collector.TempOffset),
 			)
 		}
 	}
