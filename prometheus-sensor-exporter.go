@@ -120,10 +120,12 @@ func NewBME280Sensor(address uint8, bus int, model string) *BME280Sensor {
 func SensorFromFlags(flags SensorFlags) *SHT3xSensor {
 	// Defaults
 	if flags.Address == nil {
-		*flags.Address = 0x45
+		address := uint8(0x45)
+		flags.Address = &address
 	}
 	if flags.Bus == nil {
-		*flags.Bus = 0
+		bus := 0
+		flags.Bus = &bus
 	}
 	if flags.Repeatability == "" {
 		flags.Repeatability = "high"
@@ -147,10 +149,12 @@ func SensorFromFlags(flags SensorFlags) *SHT3xSensor {
 func BME280SensorFromFlags(flags SensorFlags) *BME280Sensor {
 	// Defaults
 	if flags.Address == nil {
-		*flags.Address = 0x76
+		address := uint8(0x76)
+		flags.Address = &address
 	}
 	if flags.Bus == nil {
-		*flags.Bus = 0
+		bus := 0
+		flags.Bus = &bus
 	}
 
 	return NewBME280Sensor(*flags.Address, *flags.Bus, flags.Model)
