@@ -1,5 +1,5 @@
-prometheus-sensor-exporter (0.0.1~git20221225-1) unstable; urgency=medium
+prometheus-sensor-exporter (0.0.1~git20230224-1) unstable; urgency=medium
 
   * Initial version.
 
- -- Benjamin Drung <bdrung@debian.org>  Sun, 25 Dec 2022 14:59:46 +0100
+ -- Benjamin Drung <bdrung@debian.org>  Fri, 24 Feb 2023 01:54:31 +0100
