@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -23,11 +24,13 @@ func TestRelative2AbsoluteHumidity(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		ah := Relative2AbsoluteHumidity(test.rh, test.tempCelsius)
-		if math.Abs(ah-test.ah) > 0.05 {
-			t.Errorf(
-				"Absolute humidity for %f%% humidity at %f° C was incorrect, got: %f, want: %f.",
-				test.rh, test.tempCelsius, ah, test.ah)
-		}
+		t.Run(fmt.Sprintf("rh_%.0f_temp_%.0f", test.rh, test.tempCelsius), func(t *testing.T) {
+			ah := Relative2AbsoluteHumidity(test.rh, test.tempCelsius)
+			if math.Abs(ah-test.ah) > 0.05 {
+				t.Errorf(
+					"Absolute humidity for %f%% humidity at %f° C was incorrect, got: %f, want: %f.",
+					test.rh, test.tempCelsius, ah, test.ah)
+			}
+		})
 	}
 }
