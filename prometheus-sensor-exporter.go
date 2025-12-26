@@ -16,6 +16,7 @@ import (
 	logger "github.com/d2r2/go-logger"
 	sht3x "github.com/d2r2/go-sht3x"
 	"github.com/prometheus/client_golang/prometheus"
+	versioncollector "github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
@@ -472,6 +473,7 @@ func main() {
 		collector := NewSensorCollector(sensor, flags.TempOffset, flags.HumidityOffset)
 		prometheus.MustRegister(collector)
 	}
+	prometheus.MustRegister(versioncollector.NewCollector("sensor_exporter"))
 
 	logrus.Infof(
 		"Serving Prometheus sensor exporter on %s%s - for example http://localhost%s%s",

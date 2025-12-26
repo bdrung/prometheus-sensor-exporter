@@ -31,7 +31,10 @@ Build
 
 ```
 go get
-go build
+go build -ldflags "\
+    -X github.com/prometheus/common/version.Branch=$(git branch --show-current) \
+    -X github.com/prometheus/common/version.Revision=$(git rev-parse --short HEAD) \
+    -X github.com/prometheus/common/version.Version=0.1.0"
 ```
 
 Test
