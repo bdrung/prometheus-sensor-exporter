@@ -1,0 +1,87 @@
+prometheus-sensor-exporter(1)
+=============================
+Benjamin Drung
+:doctype: manpage
+:manmanual: prometheus-sensor-exporter
+:mansource: prometheus-sensor-exporter 0.1.0
+:manversion: 0.1.0
+
+== Name
+
+prometheus-sensor-exporter - Prometheus exporter for I²C temperature and humidity sensors
+
+== Synopsis
+
+*prometheus-sensor-exporter* [*--web.listen-address* _ADDRESS_] [*--web.telemetry-path* _PATH_]
+_SENSOR_...
+
+*prometheus-sensor-exporter* {*-h*|*--help*}
+
+== Description
+
+*prometheus-sensor-exporter* is a Prometheus exporter for I²C temperature and
+humidity sensors. Supported sensors:
+
+* Bosch Sensortec BME280, BMP180, BMP280, BMP388
+* Sensirion SHT30, SHT31, SHT35
+
+== Options
+
+*--web.listen-address* _ADDRESS_::
+Address on which to expose metrics and web interface. (default _:9775_)
+
+*--web.telemetry-path* _PATH_
+Path under which to expose metrics. (default _/metrics_)
+
+_SENSOR_::
+One or more sensor configurations.
+Each sensor configuration is a comma-separated list.
+The first element is the model name.
+All following elements are sensor options (see next section).
+
+== Sensor options
+
+_MODEL_::
+Model name of the sensor. Supported models:
++
+* BME280
+* BMP180
+* BMP280
+* BMP388
+* SHT30
+* SHT31
+* SHT35
+
+*address*=_ADDRESS_::
+I²C address (uint8) (default depends on the model)
+
+*bus*=_BUS_::
+I²C bus number (int) (default _0_)
+
+*repeatability*=low|medium|high::
+Repeatability (only SHT sensors)
+
+*temp_offset*=_OFFSET_::
+Fixed temperature offset in °C.
+This offset will be added to the measured temperature.
+(float64) (default: _0.0_)
+
+*humidity_offset*=_OFFSET_::
+Fixed humidity offset in percent.
+This offset will be added to the measured relative humidity.
+(float64) (default: _0.0_)
+
+== Examples
+
+Example for monitor two sensors: one Bosch BME280 on I²C bus 0 (using the
+default address) and one Sensirion SHT35 on I²C bus 1 with address 0x45.
+
+[example,shell]
+----
+prometheus-sensor-exporter BME280,bus=0 SHT35,bus=1,address=0x45
+----
+
+== Copying
+
+Copyright (C) 2021-2025 Benjamin Drung.
+Free use of this software is granted under the terms of the ISC License.

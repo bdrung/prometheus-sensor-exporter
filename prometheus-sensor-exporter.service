@@ -1,5 +1,6 @@
 [Unit]
 Description=Prometheus exporter for I²C temperature and humidity sensors
+Documentation=man:prometheus-sensor-exporter(1)
 After=network.target
 
 [Service]

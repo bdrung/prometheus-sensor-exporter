@@ -1,2 +1,3 @@
 /coverage*
+/man/prometheus-sensor-exporter.1
 /prometheus-sensor-exporter
