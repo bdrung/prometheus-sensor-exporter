@@ -474,7 +474,7 @@ func main() {
 	}
 
 	logrus.Infof(
-		"Serving Prometheus sensor exporter on %s%s  - for example http://localhost%s%s",
+		"Serving Prometheus sensor exporter on %s%s - for example http://localhost%s%s",
 		*listenAddress,
 		*metricsPath,
 		*listenAddress,
